@@ -64,8 +64,16 @@ public class DLedgerServer implements DLedgerProtocolHander {
     private DLedgerConfig dLedgerConfig;
 
     private DLedgerStore dLedgerStore;
+
+    /**
+     * 远程rpc服务
+     */
     private DLedgerRpcService dLedgerRpcService;
     private DLedgerEntryPusher dLedgerEntryPusher;
+
+    /**
+     * leader选取实现器
+     */
     private DLedgerLeaderElector dLedgerLeaderElector;
 
     private ScheduledExecutorService executorService;
@@ -74,8 +82,12 @@ public class DLedgerServer implements DLedgerProtocolHander {
         this.dLedgerConfig = dLedgerConfig;
         this.memberState = new MemberState(dLedgerConfig);
         this.dLedgerStore = createDLedgerStore(dLedgerConfig.getStoreType(), this.dLedgerConfig, this.memberState);
+
+        //设置rpc服务
         dLedgerRpcService = new DLedgerRpcNettyService(this);
         dLedgerEntryPusher = new DLedgerEntryPusher(dLedgerConfig, memberState, dLedgerStore, dLedgerRpcService);
+
+        //实例化一个leader选举实现器
         dLedgerLeaderElector = new DLedgerLeaderElector(dLedgerConfig, memberState, dLedgerRpcService);
         executorService = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r);

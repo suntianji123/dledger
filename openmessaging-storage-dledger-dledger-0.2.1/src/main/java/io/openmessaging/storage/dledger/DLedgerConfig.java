@@ -21,19 +21,29 @@ import com.beust.jcommander.Parameter;
 import io.openmessaging.storage.dledger.store.file.DLedgerMmapFileStore;
 import java.io.File;
 
-public class
-
-DLedgerConfig {
+/**
+ * 节点配置类
+ */
+public class DLedgerConfig {
 
     public static final String MEMORY = "MEMORY";
     public static final String FILE = "FILE";
 
+    /**
+     * 集群名
+     */
     @Parameter(names = {"--group", "-g"}, description = "Group of this server")
     private String group = "default";
 
+    /**
+     * 节点id
+     */
     @Parameter(names = {"--id", "-i"}, description = "Self id of this server")
     private String selfId = "n0";
 
+    /**
+     * 集群下其他成员节点地址
+     */
     @Parameter(names = {"--peers", "-p"}, description = "Peer info of this server")
     private String peers = "n0-localhost:20911";
 
@@ -56,13 +66,29 @@ DLedgerConfig {
 
     private int maxPushTimeOutMs = 1000;
 
+    /**
+     * 是否允许开启选举实现器
+     */
     private boolean enableLeaderElector = true;
 
+    /**
+     * 一个心跳的周期
+     */
     private int heartBeatTimeIntervalMs = 2000;
 
+    /**
+     * Follower超过了这个N次没有收到Leader发送的心跳包 状态将重新进入到Candidate状态
+     */
     private int maxHeartBeatLeak = 3;
 
+    /**
+     * 最小发起投票的时间间隔
+     */
     private int minVoteIntervalMs = 300;
+
+    /**
+     * 最大发起投票的时间间隔
+     */
     private int maxVoteIntervalMs = 1000;
 
     private int fileReservedHours = 72;

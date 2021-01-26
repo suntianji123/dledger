@@ -33,39 +33,100 @@ import static io.openmessaging.storage.dledger.MemberState.Role.CANDIDATE;
 import static io.openmessaging.storage.dledger.MemberState.Role.FOLLOWER;
 import static io.openmessaging.storage.dledger.MemberState.Role.LEADER;
 
+/**
+ * 节点状态类：Follower、Candidate、Leader
+ */
 public class MemberState {
 
     public static final String TERM_PERSIST_FILE = "currterm";
     public static final String TERM_PERSIST_KEY_TERM = "currTerm";
     public static final String TERM_PERSIST_KEY_VOTE_FOR = "voteLeader";
     public static Logger logger = LoggerFactory.getLogger(MemberState.class);
+
+    /**
+     * 节点配置
+     */
     public final DLedgerConfig dLedgerConfig;
     private final ReentrantLock defaultLock = new ReentrantLock();
+
+    /**
+     * 集群组名
+     */
     private final String group;
+
+    /**
+     * 节点ID
+     */
     private final String selfId;
     private final String peers;
+
+    /**
+     * 节点的状态：初始值为Candidate
+     */
     private volatile Role role = CANDIDATE;
+
+    /**
+     * leaderId
+     */
     private volatile String leaderId;
+
+    /**
+     * 上一次投票的轮次
+     */
     private volatile long currTerm = 0;
+
+    /**
+     * 当前投票的目标
+     */
     private volatile String currVoteFor;
+
+    /**
+     * leader节点当前投票的轮次
+     */
     private volatile long ledgerEndIndex = -1;
+
+    /**
+     * 当前日志最大序列
+     */
     private volatile long ledgerEndTerm = -1;
+
+    /**
+     * 已经知道的集群的最大选举轮次
+     */
     private long knownMaxTermInGroup = -1;
+
+    /**
+     * 群下所有节点id | 地址map
+     */
     private Map<String, String> peerMap = new HashMap<>();
     private Map<String, Boolean> peersLiveTable = new ConcurrentHashMap<>();
 
     private volatile String transferee;
     private volatile long termToTakeLeadership = -1;
 
+    /**
+     * 实例化一个节点状态对象
+     * @param config 节点配置
+     */
     public MemberState(DLedgerConfig config) {
+        //设置集群名
         this.group = config.getGroup();
+        //设置节点id
         this.selfId = config.getSelfId();
+
+        //设置集群下其他成员地址
         this.peers = config.getPeers();
+        //解析地址
         for (String peerInfo : this.peers.split(";")) {
+            //n0-localhost:20911 id
             String peerSelfId = peerInfo.split("-")[0];
+            //地址
             String peerAddress = peerInfo.substring(peerSelfId.length() + 1);
+            //将其他成员信息放入map
             peerMap.put(peerSelfId, peerAddress);
         }
+
+        //设置节点配置
         this.dLedgerConfig = config;
         loadTerm();
     }
@@ -116,15 +177,25 @@ public class MemberState {
         persistTerm();
     }
 
+    /**
+     * 进入到下一个投票轮次
+     * @return
+     */
     public synchronized long nextTerm() {
+        //检测进入下一个选举轮次的条件 角色必须是Candidate
         PreConditions.check(role == CANDIDATE, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%s != %s", role, CANDIDATE);
-        if (knownMaxTermInGroup > currTerm) {
+        if (knownMaxTermInGroup > currTerm) {//如果已经知道了最大投票轮次 并且最大轮次大于当前轮次
+            //当前选举轮次为已经知道的最大选举轮次
             currTerm = knownMaxTermInGroup;
         } else {
+            //增加当前选举轮次
             ++currTerm;
         }
+
+        //设置当前节点已经投票的目标节点为null
         currVoteFor = null;
         persistTerm();
+        //返回投票轮次
         return currTerm;
     }
 
@@ -142,15 +213,23 @@ public class MemberState {
         transferee = null;
     }
 
+    /**
+     * 将当前节点的状态设置为Candidate
+     * @param term 投票轮次
+     */
     public synchronized void changeToCandidate(long term) {
+        //投票轮次大于等于等于当前轮次
         assert term >= currTerm;
+        //检查轮次
         PreConditions.check(term >= currTerm, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "should %d >= %d", term, currTerm);
-        if (term > knownMaxTermInGroup) {
+        if (term > knownMaxTermInGroup) {//设置已知的最大轮次
             knownMaxTermInGroup = term;
         }
-        //the currTerm should be promoted in handleVote thread
+        //设置状态
         this.role = CANDIDATE;
+        //设置leaderId
         this.leaderId = null;
+
         transferee = null;
     }
 

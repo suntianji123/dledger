@@ -23,13 +23,29 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 
+/**
+ * 可以关闭的线程类
+ */
 public abstract class ShutdownAbleThread extends Thread {
     protected final ResettableCountDownLatch waitPoint = new ResettableCountDownLatch(1);
+
+    /**
+     * 日志对象
+     */
     protected Logger logger;
     protected volatile AtomicBoolean hasNotified = new AtomicBoolean(false);
+
+    /**
+     * 线程是否在运行
+     */
     private AtomicBoolean running = new AtomicBoolean(true);
     private CountDownLatch latch = new CountDownLatch(1);
 
+    /**
+     * 实例化一个可以关闭的线程对象
+     * @param name 名字
+     * @param logger 日志对象
+     */
     public ShutdownAbleThread(String name, Logger logger) {
         super(name);
         this.logger = logger;
@@ -55,6 +71,9 @@ public abstract class ShutdownAbleThread extends Thread {
         }
     }
 
+    /**
+     * 线程的工作代码
+     */
     public abstract void doWork();
 
     public void wakeup() {
@@ -81,9 +100,13 @@ public abstract class ShutdownAbleThread extends Thread {
         }
     }
 
+    /**
+     * run运行方法体
+     */
     public void run() {
-        while (running.get()) {
+        while (running.get()) {//线程正在运行
             try {
+                //工作逻辑
                 doWork();
             } catch (Throwable t) {
                 if (logger != null) {
