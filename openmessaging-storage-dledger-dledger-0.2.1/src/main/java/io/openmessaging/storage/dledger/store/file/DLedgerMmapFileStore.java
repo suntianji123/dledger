@@ -36,6 +36,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 消息存储在文件的存储类
+ */
 public class DLedgerMmapFileStore extends DLedgerStore {
 
     public static final String CHECK_POINT_FILE = "checkpoint";
@@ -43,18 +46,51 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     public static final String COMMITTED_INDEX_KEY = "committedIndex";
     public static final int MAGIC_1 = 1;
     public static final int CURRENT_MAGIC = MAGIC_1;
+
+    /**
+     * 索引  mappedFile中每一个存储对象的大小
+     */
     public static final int INDEX_UNIT_SIZE = 32;
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerMmapFileStore.class);
     public List<AppendHook> appendHooks = new ArrayList<>();
+
+    /**
+     * 节点第一条消息的在索引信息 mappedFileList中的index值
+     */
     private long ledgerBeginIndex = -1;
+
+    /**
+     * 节点的消息 mappedFile list文件系统中最后一条消息的index值
+     */
     private long ledgerEndIndex = -1;
+
     private long committedIndex = -1;
     private long committedPos = -1;
+
+    /**
+     * 节点的消息 mappedFile list文件系统中最后一条消息的轮次
+     */
     private long ledgerEndTerm;
+
+    /**
+     * 节点配置
+     */
     private DLedgerConfig dLedgerConfig;
+
+    /**
+     * 节点状态机
+     */
     private MemberState memberState;
+
+    /**
+     * mappedFileList对象
+     */
     private MmapFileList dataFileList;
+
+    /**
+     * 索引文件List对象
+     */
     private MmapFileList indexFileList;
     private ThreadLocal<ByteBuffer> localEntryBuffer;
     private ThreadLocal<ByteBuffer> localIndexBuffer;
@@ -64,22 +100,54 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
     private long lastCheckPointTimeMs = System.currentTimeMillis();
 
+    /**
+     * 是否已经加载过本地磁盘已经存在的文件到mappedFileList
+     */
     private AtomicBoolean hasLoaded = new AtomicBoolean(false);
+
+    /**
+     * 是否已经恢复过mappedFile文件
+     */
     private AtomicBoolean hasRecovered = new AtomicBoolean(false);
 
+    /**
+     * 实例化一个消息存储类型为文件的存储对象
+     * @param dLedgerConfig 节点配置
+     * @param memberState 节点状态机
+     */
     public DLedgerMmapFileStore(DLedgerConfig dLedgerConfig, MemberState memberState) {
+        //设置节点配置
         this.dLedgerConfig = dLedgerConfig;
+        //设置节点状态机
         this.memberState = memberState;
+
+        //实例化消息mappedFileList对象
         this.dataFileList = new MmapFileList(dLedgerConfig.getDataStorePath(), dLedgerConfig.getMappedFileSizeForEntryData());
+
+        //实例化化消息索引mappedFileList对象
         this.indexFileList = new MmapFileList(dLedgerConfig.getIndexStorePath(), dLedgerConfig.getMappedFileSizeForEntryIndex());
+
+        //映射消息mappedFileList文件的缓存区 默认为4M
         localEntryBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(4 * 1024 * 1024));
+
+        //映射消息索引mappedFileList文件的缓存区  默认为64K
         localIndexBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(INDEX_UNIT_SIZE * 2));
+
+        //将消息/消息索引刷新到磁盘的服务
         flushDataService = new FlushDataService("DLedgerFlushDataService", logger);
+
+        //清理mappedFileList文件中空格的服务
         cleanSpaceService = new CleanSpaceService("DLedgerCleanSpaceService", logger);
     }
 
+    /**
+     * 启动mappedFileList服务
+     */
     public void startup() {
+        //加载mappedFile父目录下的文件到mappedFileList内存
         load();
+
+        //恢复文件
         recover();
         flushDataService.start();
         cleanSpaceService.start();
@@ -106,69 +174,143 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         this.indexFileList.flush(0);
     }
 
+    /**
+     * 加载mappedFile父目录下的mappedFile到mappedFileList
+     */
     public void load() {
-        if (!hasLoaded.compareAndSet(false, true)) {
+        if (!hasLoaded.compareAndSet(false, true)) {//之前没有加载过 才可以加载
             return;
         }
+
+        //首先加载消息文件到data mappedFileList 然后加载消息索引文件到index mappedFileList
         if (!this.dataFileList.load() || !this.indexFileList.load()) {
             logger.error("Load file failed, this usually indicates fatal error, you should check it manually");
             System.exit(-1);
         }
     }
 
+    /**
+     * 恢复mappedFile文件
+     */
     public void recover() {
-        if (!hasRecovered.compareAndSet(false, true)) {
+        if (!hasRecovered.compareAndSet(false, true)) {//如果已经恢复过mappedFile文件，直接返回
             return;
         }
+
+        //检查存储消息的mappedFile列表中的mappedFile起始偏移量是否连续
         PreConditions.check(dataFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check data file order failed before recovery");
+
+        //检查存储索引的mappedFile列表中的mappedFile起始偏移量是否连续
         PreConditions.check(indexFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check index file order failed before recovery");
+
+        //获取存储消息的mappedFile列表
         final List<MmapFile> mappedFiles = this.dataFileList.getMappedFiles();
-        if (mappedFiles.isEmpty()) {
+        if (mappedFiles.isEmpty()) {//不存在存储消息的mappedFile
+            //设置索引文件刷新的起始、提交的起始位置为0
             this.indexFileList.updateWherePosition(0);
+            //删除偏移量为0之后的所有的index mappedFile文件
             this.indexFileList.truncateOffset(0);
             return;
         }
+
+        //消息 mappedFileList不为null  获取最后一个mappedFile
         MmapFile lastMappedFile = dataFileList.getLastMappedFile();
+
+        //最近三个mappedFile文件的起始下标
         int index = mappedFiles.size() - 3;
-        if (index < 0) {
+        if (index < 0) {//总的mappedFile文件数量不足三个 起始下标为0
             index = 0;
         }
 
         long firstEntryIndex = -1;
-        for (int i = index; i >= 0; i--) {
+        for (int i = index; i >= 0; i--) {//从最后一个mappedFile开始 往前遍历3个mappedFile文件
+            //检查每个消息 mappedFile中存放的消息的位置信息与索引 mappedFile中对应位置的索引信息记录的信息相同
+
+            //当前mappedFile文件下标
             index = i;
+
+            //获取mappedFile文件
             MmapFile mappedFile = mappedFiles.get(index);
+            //获取mappedFile的映射缓冲区
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
             try {
+                //起始偏移量
                 long startPos = mappedFile.getFileFromOffset();
+                //模数
                 int magic = byteBuffer.getInt();
+                //获取消息所占的总的字节数
                 int size = byteBuffer.getInt();
+                //消息实体的在index mappedFile List系统中的索引下标
                 long entryIndex = byteBuffer.getLong();
+                //消息所处的选举轮次
                 long entryTerm = byteBuffer.getLong();
+                //消息在mappedFile List系统的起始偏移量
                 long pos = byteBuffer.getLong();
+
+                //获取通道
                 byteBuffer.getInt(); //channel
+
+                //获取区块链crc值
                 byteBuffer.getInt(); //chain crc
+
+                //获取消息体的crc值
                 byteBuffer.getInt(); //body crc
+
+                //获取消息体的字节数
                 int bodySize = byteBuffer.getInt();
+
+                //校验消息的模数
                 PreConditions.check(magic != MmapFileList.BLANK_MAGIC_CODE && magic >= MAGIC_1 && MAGIC_1 <= CURRENT_MAGIC, DLedgerResponseCode.DISK_ERROR, "unknown magic=%d", magic);
+
+                //消息所占的字节数必须大于消息头的字节数
                 PreConditions.check(size > DLedgerEntry.HEADER_SIZE, DLedgerResponseCode.DISK_ERROR, "Size %d should > %d", size, DLedgerEntry.HEADER_SIZE);
 
+                //检查消息的位置参数
                 PreConditions.check(pos == startPos, DLedgerResponseCode.DISK_ERROR, "pos %d != %d", pos, startPos);
+
+                //消息体占的字节数 + 消息体的偏移量必须等于消息所占的总的字节数
                 PreConditions.check(bodySize + DLedgerEntry.BODY_OFFSET == size, DLedgerResponseCode.DISK_ERROR, "size %d != %d + %d", size, bodySize, DLedgerEntry.BODY_OFFSET);
 
+                //获取存储消息的mappedFile的第一条消息在索引 mappedFile中存放的byteBuffer信息
                 SelectMmapBufferResult indexSbr = indexFileList.getData(entryIndex * INDEX_UNIT_SIZE);
+
+                //存在索引信息
                 PreConditions.check(indexSbr != null, DLedgerResponseCode.DISK_ERROR, "index=%d pos=%d", entryIndex, entryIndex * INDEX_UNIT_SIZE);
+
+                //释放对索引mappedFile的引用
                 indexSbr.release();
+
+                //获取结果bytebuffer
                 ByteBuffer indexByteBuffer = indexSbr.getByteBuffer();
+
+                //索引信息中存放的消息模数值
                 int magicFromIndex = indexByteBuffer.getInt();
+
+                //索引信息中存放的消息偏移量
                 long posFromIndex = indexByteBuffer.getLong();
+
+                //索引信息中存放的消息的所占字节数
                 int sizeFromIndex = indexByteBuffer.getInt();
+
+                //索引信息中存放的消息的在index mappedFile LIst系统中的下标
                 long indexFromIndex = indexByteBuffer.getLong();
+
+                //索引信息中存放的消息的集群选举轮次
                 long termFromIndex = indexByteBuffer.getLong();
+
+                //消息中的模数值与索引信息中的模数值必须相等
                 PreConditions.check(magic == magicFromIndex, DLedgerResponseCode.DISK_ERROR, "magic %d != %d", magic, magicFromIndex);
+
+                //消息中消息所占的字节数必须与索引信息中消息所占的字节数相等
                 PreConditions.check(size == sizeFromIndex, DLedgerResponseCode.DISK_ERROR, "size %d != %d", size, sizeFromIndex);
+
+                //消息中消息在索引 mappedFile list中的下标 必须与索引信息中消息的index值相等
                 PreConditions.check(entryIndex == indexFromIndex, DLedgerResponseCode.DISK_ERROR, "index %d != %d", entryIndex, indexFromIndex);
+
+                //消息的轮次必须与索引信息中的轮次相等
                 PreConditions.check(entryTerm == termFromIndex, DLedgerResponseCode.DISK_ERROR, "term %d != %d", entryTerm, termFromIndex);
+
+                //消息中的偏移量必须与索引信息中的偏移量相等
                 PreConditions.check(posFromIndex == mappedFile.getFileFromOffset(), DLedgerResponseCode.DISK_ERROR, "pos %d != %d", mappedFile.getFileFromOffset(), posFromIndex);
                 firstEntryIndex = entryIndex;
                 break;
@@ -177,68 +319,135 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             }
         }
 
+        //获取倒数第3个mappedFile文件
         MmapFile mappedFile = mappedFiles.get(index);
+
+        //获取mappedFile 映射的bytebuffer对象
         ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
         logger.info("Begin to recover data from entryIndex={} fileIndex={} fileSize={} fileName={} ", firstEntryIndex, index, mappedFiles.size(), mappedFile.getFileName());
+
+        //遍历的mappedFile中当前消息的上一条消息在 index mappedFile List系统中的位置
         long lastEntryIndex = -1;
+
+        //遍历的mappedFile中当前消息的上一条消息在轮次
         long lastEntryTerm = -1;
+
+        //处理的偏移量
         long processOffset = mappedFile.getFileFromOffset();
+
+        //是否需要将消息的索引信息添加到index mappedFile list文件系统
         boolean needWriteIndex = false;
+
+        //恢复3G内的消息的索引mappedFile
         while (true) {
             try {
+                //当前bytebuffer读到的位置
                 int relativePos = byteBuffer.position();
+                //消息的起始偏移量
                 long absolutePos = mappedFile.getFileFromOffset() + relativePos;
+                //获取消息的模数
                 int magic = byteBuffer.getInt();
-                if (magic == MmapFileList.BLANK_MAGIC_CODE) {
+
+                if (magic == MmapFileList.BLANK_MAGIC_CODE) {//空白模数 当前mappedFile之后没有消息
+                    //将偏移量 移动到下一个mappedFile的第一个消息的起始偏移量
                     processOffset = mappedFile.getFileFromOffset() + mappedFile.getFileSize();
+                    //下一个mappedFile文件的索引
                     index++;
-                    if (index >= mappedFiles.size()) {
+                    if (index >= mappedFiles.size()) {//当亲已经是最后一个mappedFile
                         logger.info("Recover data file over, the last file {}", mappedFile.getFileName());
                         break;
                     } else {
+                        //获取下一个mappedFile
                         mappedFile = mappedFiles.get(index);
+
+                        //设置bytebuffer为下一个mappedFile映射的bytebuffer
                         byteBuffer = mappedFile.sliceByteBuffer();
+                        //设置当前遍历到的消息的偏移量为下一个mappedFile文件的起始偏移量
                         processOffset = mappedFile.getFileFromOffset();
                         logger.info("Trying to recover data file {}", mappedFile.getFileName());
                         continue;
                     }
                 }
 
+                //获取消息大小
                 int size = byteBuffer.getInt();
+
+                //获取消息在index mappedFile List系统中中index位置
                 long entryIndex = byteBuffer.getLong();
+
+                //获取消息的轮次
                 long entryTerm = byteBuffer.getLong();
+
+                //获取消息在mapppedFile list中的偏移量
                 long pos = byteBuffer.getLong();
+
+                //获取消息的通道
                 byteBuffer.getInt(); //channel
+
+                //消息的区块链crc值
                 byteBuffer.getInt(); //chain crc
+
+                //消息体字节数组的crc值
                 byteBuffer.getInt(); //body crc
+
+                //消息体大小
                 int bodySize = byteBuffer.getInt();
 
+                //消息偏移量必须与mappedFile映射的bytebuffer中的位置相等
                 PreConditions.check(pos == absolutePos, DLedgerResponseCode.DISK_ERROR, "pos %d != %d", pos, absolutePos);
+
+                //消息体大小 + 消息体偏移量必须为消息总的字节数相等
                 PreConditions.check(bodySize + DLedgerEntry.BODY_OFFSET == size, DLedgerResponseCode.DISK_ERROR, "size %d != %d + %d", size, bodySize, DLedgerEntry.BODY_OFFSET);
 
+                //设置当前读到的位置
                 byteBuffer.position(relativePos + size);
 
+                //校验模数
                 PreConditions.check(magic <= CURRENT_MAGIC && magic >= MAGIC_1, DLedgerResponseCode.DISK_ERROR, "pos=%d size=%d magic=%d index=%d term=%d currMagic=%d", absolutePos, size, magic, entryIndex, entryTerm, CURRENT_MAGIC);
                 if (lastEntryIndex != -1) {
+                    //当前消息在index mappedFile list系统的index值必须必上一条消息在index mappedFile list系统中的index值大1
                     PreConditions.check(entryIndex == lastEntryIndex + 1, DLedgerResponseCode.DISK_ERROR, "pos=%d size=%d magic=%d index=%d term=%d lastEntryIndex=%d", absolutePos, size, magic, entryIndex, entryTerm, lastEntryIndex);
                 }
+
+                //当前消息的轮次必须比上一条消息的轮次大一
                 PreConditions.check(entryTerm >= lastEntryTerm, DLedgerResponseCode.DISK_ERROR, "pos=%d size=%d magic=%d index=%d term=%d lastEntryTerm=%d ", absolutePos, size, magic, entryIndex, entryTerm, lastEntryTerm);
+
+                //消息的所占的字节数 必须大于消息头所占的字节数
                 PreConditions.check(size > DLedgerEntry.HEADER_SIZE, DLedgerResponseCode.DISK_ERROR, "size %d should > %d", size, DLedgerEntry.HEADER_SIZE);
                 if (!needWriteIndex) {
                     try {
+                        //获取消息在index mappedFileList中结果bytebuffer结果对象
                         SelectMmapBufferResult indexSbr = indexFileList.getData(entryIndex * INDEX_UNIT_SIZE);
+                        //结果bytebuffer不能为空
                         PreConditions.check(indexSbr != null, DLedgerResponseCode.DISK_ERROR, "index=%d pos=%d", entryIndex, entryIndex * INDEX_UNIT_SIZE);
+                        //释放当前线程对index mappedFile的引用
                         indexSbr.release();
+                        //获取截取的bytebuffer对象
                         ByteBuffer indexByteBuffer = indexSbr.getByteBuffer();
+                        //获取索引信息记录的模数值
                         int magicFromIndex = indexByteBuffer.getInt();
+                        //获取索引信息记录的偏移量值
                         long posFromIndex = indexByteBuffer.getLong();
+                        //获取索引信息记录的消息所占的字节数
                         int sizeFromIndex = indexByteBuffer.getInt();
+                        //获取索引信息记录的消息的index值
                         long indexFromIndex = indexByteBuffer.getLong();
+                        //获取索引信息记录的消息的轮次
                         long termFromIndex = indexByteBuffer.getLong();
+
+                        //检查消息的模数与索引信息记录的模数相等
                         PreConditions.check(magic == magicFromIndex, DLedgerResponseCode.DISK_ERROR, "magic %d != %d", magic, magicFromIndex);
+
+                        //检查消息所占字节数与索引信息记录的消息所占的字节数相等
                         PreConditions.check(size == sizeFromIndex, DLedgerResponseCode.DISK_ERROR, "size %d != %d", size, sizeFromIndex);
+
+                        //检查消息的index值与索引信息记录的index值相等
                         PreConditions.check(entryIndex == indexFromIndex, DLedgerResponseCode.DISK_ERROR, "index %d != %d", entryIndex, indexFromIndex);
+
+                        //检查消息的轮次与索引信息记录的轮次相等
                         PreConditions.check(entryTerm == termFromIndex, DLedgerResponseCode.DISK_ERROR, "term %d != %d", entryTerm, termFromIndex);
+
+                        //检查消息的偏移量与索引信息记录的偏移量相等
                         PreConditions.check(absolutePos == posFromIndex, DLedgerResponseCode.DISK_ERROR, "pos %d != %d", mappedFile.getFileFromOffset(), posFromIndex);
                     } catch (Throwable t) {
                         logger.warn("Compare data to index failed {}", mappedFile.getFileName(), t);
@@ -248,17 +457,30 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                             logger.warn("[Recovery] rebuild for index wrotePos={} not equal to truncatePos={}", indexFileList.getMaxWrotePosition(), truncateIndexOffset);
                             PreConditions.check(indexFileList.rebuildWithPos(truncateIndexOffset), DLedgerResponseCode.DISK_ERROR, "rebuild index truncatePos=%d", truncateIndexOffset);
                         }
+
+                        //发生异常 没有检查到消息的索引信息所在index mappedFile 需要将消息的索引信息记录到index mappedFile list
                         needWriteIndex = true;
                     }
                 }
                 if (needWriteIndex) {
+                    //获取线程上下文的byteBuffer对象
                     ByteBuffer indexBuffer = localIndexBuffer.get();
+
+                    //将消息的索引信息写入到indexbytebuffer
                     DLedgerEntryCoder.encodeIndex(absolutePos, size, magic, entryIndex, entryTerm, indexBuffer);
+
+                    //将消息的索引信息写入到index mappedFileList文件系统 返回写入的索引信息在index mappedFile list中的起始偏移量
                     long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
+
+                    //写入索引消息的偏移量必须与消息的index值关联
                     PreConditions.check(indexPos == entryIndex * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, "Write index failed index=%d", entryIndex);
                 }
+
+                //设置上一条消息的在indez mappedList系统中的index值
                 lastEntryIndex = entryIndex;
+                //设置上一条消息的轮次
                 lastEntryTerm = entryTerm;
+                //将消息的偏移量移动到下一个消息的起始偏移量
                 processOffset += size;
             } catch (Throwable t) {
                 logger.info("Recover data file to the end of {} ", mappedFile.getFileName(), t);
@@ -272,21 +494,43 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             System.exit(-1);
         }
 
+        //设置节点最后一条消息的在消息 mappedFile list文件系统中的索引值
         ledgerEndIndex = lastEntryIndex;
+
+        //奢姿节点最后一条消息的轮次
         ledgerEndTerm = lastEntryTerm;
-        if (lastEntryIndex != -1) {
+        if (lastEntryIndex != -1) {//节点存在最后一条消息
+            //获取最后一条消息
             DLedgerEntry entry = get(lastEntryIndex);
+            //检测消息实体不为null
             PreConditions.check(entry != null, DLedgerResponseCode.DISK_ERROR, "recheck get null entry");
+            //检测消息实体的索引值
             PreConditions.check(entry.getIndex() == lastEntryIndex, DLedgerResponseCode.DISK_ERROR, "recheck index %d != %d", entry.getIndex(), lastEntryIndex);
+
+            //重新设置index mappedFlLE list文件系统的起始偏移量 删除之前的mappedFile文件
             reviseLedgerBeginIndex();
         }
+
+        //设置已经刷新到的位置 已经写到的位置
         this.dataFileList.updateWherePosition(processOffset);
+
+        //删除processOffset之后mappedfILE文件 设置最后一个mappedFILE已经刷新、写入、提交到的位置
         this.dataFileList.truncateOffset(processOffset);
+
+        //索引mappedFile list写入到的位置
         long indexProcessOffset = (lastEntryIndex + 1) * INDEX_UNIT_SIZE;
+        //设置索引mappedFile刷新、提交到的位置
         this.indexFileList.updateWherePosition(indexProcessOffset);
+        //设置索引mappedFile list最后一个mappedFile的写入、刷新、提交的位置
         this.indexFileList.truncateOffset(indexProcessOffset);
+
+        //更新节点状态机最后一条消息的索引值 轮次
         updateLedgerEndIndexAndTerm();
+
+        //检查消息mappedFile list下所有的mappedFile连续
         PreConditions.check(dataFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check data file order failed after recovery");
+
+        //检查所mappeFile lit下所有的mappedFile连续
         PreConditions.check(indexFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check index file order failed after recovery");
         //Load the committed index from checkpoint
         Properties properties = loadCheckPoint();
@@ -303,18 +547,30 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return;
     }
 
+    /**
+     * 重新设置第一条消息的索引值
+     */
     private void reviseLedgerBeginIndex() {
-        //get ledger begin index
+        //获取第一个mappedFile
         MmapFile firstFile = dataFileList.getFirstMappedFile();
+        //获取位置0的消息体体
         SelectMmapBufferResult sbr = firstFile.selectMappedBuffer(0);
         try {
+            //获取bytebuffer对象
             ByteBuffer tmpBuffer = sbr.getByteBuffer();
+            //设置读的位置
             tmpBuffer.position(firstFile.getStartPosition());
+            //获取魔数
             tmpBuffer.getInt(); //magic
+            //获取消息所占的字节数
             tmpBuffer.getInt(); //size
+            //获取消息的索引位置
             ledgerBeginIndex = tmpBuffer.getLong();
+
+            //删除起始偏移量之前的文件 重置起始偏移量
             indexFileList.resetOffset(ledgerBeginIndex * INDEX_UNIT_SIZE);
         } finally {
+            //释放对第一个mappedFile文件的引用
             SelectMmapBufferResult.release(sbr);
         }
 
@@ -499,6 +755,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return null;
     }
 
+    /**
+     * 获取最后一条消息的索引值
+     * @return
+     */
     @Override
     public long getLedgerEndIndex() {
         return ledgerEndIndex;
@@ -508,26 +768,51 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return ledgerBeginIndex;
     }
 
+    /**
+     * 根据索引位置获取消息实体
+     * @param index 索引值
+     * @return
+     */
     @Override
     public DLedgerEntry get(Long index) {
+        //检查消息的索引值 必须大于等于0
         PreConditions.check(index >= 0, DLedgerResponseCode.INDEX_OUT_OF_RANGE, "%d should gt 0", index);
+
+        //索引值必须大于等于第一条消息的索引值
         PreConditions.check(index >= ledgerBeginIndex, DLedgerResponseCode.INDEX_LESS_THAN_LOCAL_BEGIN, "%d should be gt %d, ledgerBeginIndex may be revised", index, ledgerBeginIndex);
+        //索引值必须小于等于最后一条消息的索引值
         PreConditions.check(index <= ledgerEndIndex, DLedgerResponseCode.INDEX_OUT_OF_RANGE, "%d should between %d-%d", index, ledgerBeginIndex, ledgerEndIndex);
+        //选择的索引 mappedFile list文件系统映射的bytebuffer缓存区结果对象
         SelectMmapBufferResult indexSbr = null;
+        //选择的消息 mappedFile list文件系统映射的bytebuffer缓存区结果对象
         SelectMmapBufferResult dataSbr = null;
         try {
+            //获取索bytebuffer
             indexSbr = indexFileList.getData(index * INDEX_UNIT_SIZE, INDEX_UNIT_SIZE);
+            //检查索引bytebuffer
             PreConditions.check(indexSbr != null && indexSbr.getByteBuffer() != null, DLedgerResponseCode.DISK_ERROR, "Get null index for %d", index);
+            //获取消息的模数
             indexSbr.getByteBuffer().getInt(); //magic
+            //获取消息的偏移量
             long pos = indexSbr.getByteBuffer().getLong();
+            //获取消息所占的字节数
             int size = indexSbr.getByteBuffer().getInt();
+            //获取消息的bytebuffer
             dataSbr = dataFileList.getData(pos, size);
+            //消息的bytebuffer不能为null
             PreConditions.check(dataSbr != null && dataSbr.getByteBuffer() != null, DLedgerResponseCode.DISK_ERROR, "Get null data for %d", index);
+            //从缓存区中取出字节数组 解码为消息实体
             DLedgerEntry dLedgerEntry = DLedgerEntryCoder.decode(dataSbr.getByteBuffer());
+            //消息的偏移量与实体的偏移量相等
             PreConditions.check(pos == dLedgerEntry.getPos(), DLedgerResponseCode.DISK_ERROR, "%d != %d", pos, dLedgerEntry.getPos());
+            //获取消息实体
             return dLedgerEntry;
         } finally {
+
+            //释放对消息 mappedFile的引用
             SelectMmapBufferResult.release(indexSbr);
+
+            //释放对索引 mappedFile的引用
             SelectMmapBufferResult.release(dataSbr);
         }
     }
@@ -560,6 +845,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         this.committedPos = dLedgerEntry.getPos() + dLedgerEntry.getSize();
     }
 
+    /**
+     * 获取最后一条消息的轮次
+     * @return
+     */
     @Override
     public long getLedgerEndTerm() {
         return ledgerEndTerm;

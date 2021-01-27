@@ -53,20 +53,32 @@ import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * A netty implementation of DLedgerRpcService. It should be bi-directional, which means it implements both
- * DLedgerProtocol and DLedgerProtocolHandler.
- */
 
+/**
+ * 远程rpc服务 包括server / client
+ */
 public class DLedgerRpcNettyService extends DLedgerRpcService {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerRpcNettyService.class);
 
+    /**
+     * netty server服务端
+     */
     private NettyRemotingServer remotingServer;
+
+    /**
+     * netty client客户端
+     */
     private NettyRemotingClient remotingClient;
 
+    /**
+     * 节点状态机
+     */
     private MemberState memberState;
 
+    /**
+     * 节点服务器
+     */
     private DLedgerServer dLedgerServer;
 
     private ExecutorService futureExecutor = Executors.newFixedThreadPool(4, new ThreadFactory() {
@@ -96,23 +108,37 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         }
     });
 
+    /**
+     * 实例化一个远程rpc服务
+     * @param dLedgerServer 节点服务器
+     */
     public DLedgerRpcNettyService(DLedgerServer dLedgerServer) {
+        //设置节点服务器
         this.dLedgerServer = dLedgerServer;
+
+        //设置节点状态机
         this.memberState = dLedgerServer.getMemberState();
+
+        //接收到其他节点请求的处理器
         NettyRequestProcessor protocolProcessor = new NettyRequestProcessor() {
             @Override
             public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws Exception {
                 return DLedgerRpcNettyService.this.processRequest(ctx, request);
             }
 
+            //是否拒绝请求 返回false
             @Override public boolean rejectRequest() {
                 return false;
             }
         };
-        //start the remoting server
+
+        //实例化一个netty server配置
         NettyServerConfig nettyServerConfig = new NettyServerConfig();
+        //设置接收远程连接的监听端口
         nettyServerConfig.setListenPort(Integer.valueOf(memberState.getSelfAddr().split(":")[1]));
+        //实例化一个Netty server
         this.remotingServer = new NettyRemotingServer(nettyServerConfig, null);
+        //注册请求码对应的处理器
         this.remotingServer.registerProcessor(DLedgerRequestCode.METADATA.getCode(), protocolProcessor, null);
         this.remotingServer.registerProcessor(DLedgerRequestCode.APPEND.getCode(), protocolProcessor, null);
         this.remotingServer.registerProcessor(DLedgerRequestCode.GET.getCode(), protocolProcessor, null);
@@ -122,7 +148,7 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         this.remotingServer.registerProcessor(DLedgerRequestCode.HEART_BEAT.getCode(), protocolProcessor, null);
         this.remotingServer.registerProcessor(DLedgerRequestCode.LEADERSHIP_TRANSFER.getCode(), protocolProcessor, null);
 
-        //start the remoting client
+        //设置netty client
         this.remotingClient = new NettyRemotingClient(new NettyClientConfig(), null);
 
     }

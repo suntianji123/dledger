@@ -26,7 +26,14 @@ import java.io.File;
  */
 public class DLedgerConfig {
 
+    /**
+     * 消息存储类型为内存
+     */
     public static final String MEMORY = "MEMORY";
+
+    /**
+     * 消息存储类型为文件
+     */
     public static final String FILE = "FILE";
 
     /**
@@ -47,6 +54,9 @@ public class DLedgerConfig {
     @Parameter(names = {"--peers", "-p"}, description = "Peer info of this server")
     private String peers = "n0-localhost:20911";
 
+    /**
+     * 默认的存储路径
+     */
     @Parameter(names = {"--store-base-dir", "-s"}, description = "The base store dir of this server")
     private String storeBaseDir = File.separator + "tmp" + File.separator + "dledgerstore";
 
@@ -57,7 +67,14 @@ public class DLedgerConfig {
     @Parameter(names = {"--peer-push-quotas"}, description = "The quotas of the pusher")
     private int peerPushQuota = 20 * 1024 * 1024;
 
+    /**
+     * 消息存储类型：存储到文件、存储到内存 默认为文件
+     */
     private String storeType = FILE; //FILE, MEMORY
+
+    /**
+     * mappedFile文件存储的根目录
+     */
     private String dataStorePath;
 
     private int maxPendingRequestsNum = 10000;
@@ -103,7 +120,14 @@ public class DLedgerConfig {
 
     private long checkPointInterval = 3000;
 
+    /**
+     * 单个mappedFile的最大字节数 默认为1G
+     */
     private int mappedFileSizeForEntryData = 1024 * 1024 * 1024;
+
+    /**
+     * 消息索引信息单个mappedFile的最大值 默认160M
+     */
     private int mappedFileSizeForEntryIndex = DLedgerMmapFileStore.INDEX_UNIT_SIZE * 5 * 1024 * 1024;
 
     private boolean enablePushToFollower = true;
@@ -133,6 +157,10 @@ public class DLedgerConfig {
         this.dataStorePath = dataStorePath;
     }
 
+    /**
+     * 消息索引信息mappedFile的根目录
+     * @return
+     */
     public String getIndexStorePath() {
         return getDefaultPath() + File.separator + "index";
     }

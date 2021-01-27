@@ -44,6 +44,9 @@ public abstract class DLedgerStore {
 
     public abstract long getLedgerBeginIndex();
 
+    /**
+     * 更新节点状态机 最后一条消息的索引位置 轮次
+     */
     protected void updateLedgerEndIndexAndTerm() {
         if (getMemberState() != null) {
             getMemberState().updateLedgerIndexAndTerm(getLedgerEndIndex(), getLedgerEndTerm());

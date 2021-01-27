@@ -20,14 +20,24 @@ package io.openmessaging.storage.dledger.utils;
 import io.openmessaging.storage.dledger.exception.DLedgerException;
 import io.openmessaging.storage.dledger.protocol.DLedgerResponseCode;
 
+/**
+ * 前置条件 检测
+ */
 public class PreConditions {
 
     public static void check(boolean expression, DLedgerResponseCode code) throws DLedgerException {
         check(expression, code, null);
     }
 
+    /**
+     * 检测
+     * @param expression 检测表达式
+     * @param code 错误码
+     * @param message 错误信息
+     * @throws DLedgerException
+     */
     public static void check(boolean expression, DLedgerResponseCode code, String message) throws DLedgerException {
-        if (!expression) {
+        if (!expression) {//表达式的值为false
             message = message == null ? code.toString()
                 : code.toString() + " " + message;
             throw new DLedgerException(code, message);

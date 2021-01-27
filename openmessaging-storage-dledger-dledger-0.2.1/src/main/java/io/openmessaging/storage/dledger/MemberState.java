@@ -81,12 +81,12 @@ public class MemberState {
     private volatile String currVoteFor;
 
     /**
-     * leader节点当前投票的轮次
+     * 节点存储的最后一条消息的索引值
      */
     private volatile long ledgerEndIndex = -1;
 
     /**
-     * 当前日志最大序列
+     * 节点存储的最后一条消息的轮次
      */
     private volatile long ledgerEndTerm = -1;
 
@@ -262,6 +262,10 @@ public class MemberState {
         return group;
     }
 
+    /**
+     * 获取当前节点的地址
+     * @return
+     */
     public String getSelfAddr() {
         return peerMap.get(selfId);
     }
@@ -320,7 +324,13 @@ public class MemberState {
         return defaultLock;
     }
 
+    /**
+     * 更新状态机最后一条消息的索引值 轮次
+     * @param index 最后一条索引值
+     * @param term 最后一条轮次
+     */
     public void updateLedgerIndexAndTerm(long index, long term) {
+        //
         this.ledgerEndIndex = index;
         this.ledgerEndTerm = term;
     }

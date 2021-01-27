@@ -46,37 +46,75 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 消息推送器
+ */
 public class DLedgerEntryPusher {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerEntryPusher.class);
 
+    /**
+     * 节点配置
+     */
     private DLedgerConfig dLedgerConfig;
+
+    /**
+     * 消息存储
+     */
     private DLedgerStore dLedgerStore;
 
+    /**
+     * 节点状态机
+     */
     private final MemberState memberState;
 
+    /**
+     * rpc服务
+     */
     private DLedgerRpcService dLedgerRpcService;
 
     private Map<Long, ConcurrentMap<String, Long>> peerWaterMarksByTerm = new ConcurrentHashMap<>();
     private Map<Long, ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>>> pendingAppendResponsesByTerm = new ConcurrentHashMap<>();
 
+    /**
+     * 实体处理器
+     */
     private EntryHandler entryHandler;
 
     private QuorumAckChecker quorumAckChecker;
 
+    /**
+     * 对端节点id|分发器实体 map
+     */
     private Map<String, EntryDispatcher> dispatcherMap = new HashMap<>();
 
+    /**
+     * 实例化数据推送者
+     * @param dLedgerConfig 节点配置
+     * @param memberState 节点状态机
+     * @param dLedgerStore 节点消息存储对象
+     * @param dLedgerRpcService 节点rpc服务
+     */
     public DLedgerEntryPusher(DLedgerConfig dLedgerConfig, MemberState memberState, DLedgerStore dLedgerStore,
         DLedgerRpcService dLedgerRpcService) {
+        //设置节点配置
         this.dLedgerConfig = dLedgerConfig;
+        //设置节点状态机
         this.memberState = memberState;
+        //设置节点消息存储
         this.dLedgerStore = dLedgerStore;
+        //设置rpc服务
         this.dLedgerRpcService = dLedgerRpcService;
+
+        //遍历状态机中所有节点
         for (String peer : memberState.getPeerMap().keySet()) {
-            if (!peer.equals(memberState.getSelfId())) {
+            if (!peer.equals(memberState.getSelfId())) {//过滤掉自身节点
+                //对端节点id | 分发器实体
                 dispatcherMap.put(peer, new EntryDispatcher(peer, logger));
             }
         }
+
+        //设置实体处理器
         this.entryHandler = new EntryHandler(logger);
         this.quorumAckChecker = new QuorumAckChecker(logger);
     }
@@ -303,28 +341,18 @@ public class DLedgerEntryPusher {
         }
     }
 
+
     /**
-     * This thread will be activated by the leader.
-     * This thread will push the entry to follower(identified by peerId) and update the completed pushed index to index map.
-     * Should generate a single thread for each peer.
-     * The push has 4 types:
-     *   APPEND : append the entries to the follower
-     *   COMPARE : if the leader changes, the new leader should compare its entries to follower's
-     *   TRUNCATE : if the leader finished comparing by an index, the leader will send a request to truncate the follower's ledger
-     *   COMMIT: usually, the leader will attach the committed index with the APPEND request, but if the append requests are few and scattered,
-     *           the leader will send a pure request to inform the follower of committed index.
-     *
-     *   The common transferring between these types are as following:
-     *
-     *   COMPARE ---- TRUNCATE ---- APPEND ---- COMMIT
-     *   ^                             |
-     *   |---<-----<------<-------<----|
-     *
+     * 分发器实体
      */
     private class EntryDispatcher extends ShutdownAbleThread {
 
         private AtomicReference<PushEntryRequest.Type> type = new AtomicReference<>(PushEntryRequest.Type.COMPARE);
         private long lastPushCommitTimeMs = -1;
+
+        /**
+         * 对端节点id
+         */
         private String peerId;
         private long compareIndex = -1;
         private long writeIndex = -1;
@@ -337,8 +365,14 @@ public class DLedgerEntryPusher {
         private PushEntryRequest batchAppendEntryRequest = new PushEntryRequest();
         private Quota quota = new Quota(dLedgerConfig.getPeerPushQuota());
 
+        /**
+         * 实例化一个分发器实体
+         * @param peerId 节点id
+         * @param logger 日志对象
+         */
         public EntryDispatcher(String peerId, Logger logger) {
             super("EntryDispatcher-" + memberState.getSelfId() + "-" + peerId, logger);
+            //对端节点id
             this.peerId = peerId;
         }
 
@@ -746,9 +780,7 @@ public class DLedgerEntryPusher {
     }
 
     /**
-     * This thread will be activated by the follower.
-     * Accept the push request and order it by the index, then append to ledger store one by one.
-     *
+     * 实体处理器
      */
     private class EntryHandler extends ShutdownAbleThread {
 
@@ -757,6 +789,10 @@ public class DLedgerEntryPusher {
         ConcurrentMap<Long, Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>> writeRequestMap = new ConcurrentHashMap<>();
         BlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>> compareOrTruncateRequests = new ArrayBlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>>(100);
 
+        /**
+         * 实例化一个实体处理器
+         * @param logger 日志对象
+         */
         public EntryHandler(Logger logger) {
             super("EntryHandler-" + memberState.getSelfId(), logger);
         }

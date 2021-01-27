@@ -22,14 +22,23 @@ import com.beust.jcommander.JCommander;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ *主要应用程序
+ */
 public class DLedger {
 
     private static Logger logger = LoggerFactory.getLogger(DLedger.class);
 
     public static void main(String args[]) {
+        //实例化节点配置
         DLedgerConfig dLedgerConfig = new DLedgerConfig();
+        //解析运行参数 并将运行参数设置到dLedgerConfig
         JCommander.newBuilder().addObject(dLedgerConfig).build().parse(args);
+
+        //实例化一个服务器节点
         DLedgerServer dLedgerServer = new DLedgerServer(dLedgerConfig);
+
+        //启动节点服务器
         dLedgerServer.startup();
         logger.info("[{}] group {} start ok with config {}", dLedgerConfig.getSelfId(), dLedgerConfig.getGroup(), JSON.toJSONString(dLedgerConfig));
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {

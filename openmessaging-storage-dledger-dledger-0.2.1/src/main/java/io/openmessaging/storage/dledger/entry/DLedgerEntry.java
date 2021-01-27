@@ -17,20 +17,69 @@
 
 package io.openmessaging.storage.dledger.entry;
 
+/**
+ * 存储在mappedFile文件中的消息实体
+ */
 public class DLedgerEntry {
 
+    /**
+     * 消息偏移量起始位置
+     */
     public final static int POS_OFFSET = 4 + 4 + 8 + 8;
+
+    /**
+     * 消息头所占字节数
+     */
     public final static int HEADER_SIZE = POS_OFFSET + 8 + 4 + 4 + 4;
+
+    /**
+     * 消息体的起始偏移量
+     */
     public final static int BODY_OFFSET = HEADER_SIZE + 4;
 
+    /**
+     * 模数
+     */
     private int magic;
+
+    /**
+     * 消息所占的总的字节数
+     */
     private int size;
+
+    /**
+     * 消息在index mappedFile List中的下标
+     */
     private long index;
+
+    /**
+     * 当前集群选举的轮次
+     */
     private long term;
-    private long pos; //used to validate data
+
+    /**
+     * 消息在mappedFile List系统中的偏移量
+     */
+    private long pos;
+
+    /**
+     * 通道
+     */
     private int channel; //reserved
+
+    /**
+     * 之前的修改
+     */
     private int chainCrc; //like the block chain, this crc indicates any modification before this entry.
+
+    /**
+     * 消息体字节数组的crc值
+     */
     private int bodyCrc; //the crc of the body
+
+    /**
+     * 消息体字节数组
+     */
     private byte[] body;
 
     public int getSize() {

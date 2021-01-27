@@ -60,7 +60,14 @@ public class DLedgerServer implements DLedgerProtocolHander {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerServer.class);
 
+    /**
+     * 节点状态机
+     */
     private MemberState memberState;
+
+    /**
+     * 节点配置
+     */
     private DLedgerConfig dLedgerConfig;
 
     private DLedgerStore dLedgerStore;
@@ -78,27 +85,44 @@ public class DLedgerServer implements DLedgerProtocolHander {
 
     private ScheduledExecutorService executorService;
 
+    /**
+     * 实例化一个服务器节点
+     * @param dLedgerConfig 节点配置
+     */
     public DLedgerServer(DLedgerConfig dLedgerConfig) {
+        //设置节点配置
         this.dLedgerConfig = dLedgerConfig;
+        //设置状态机
         this.memberState = new MemberState(dLedgerConfig);
+        //设置文件存储
         this.dLedgerStore = createDLedgerStore(dLedgerConfig.getStoreType(), this.dLedgerConfig, this.memberState);
 
         //设置rpc服务
         dLedgerRpcService = new DLedgerRpcNettyService(this);
+        //数据推送器
         dLedgerEntryPusher = new DLedgerEntryPusher(dLedgerConfig, memberState, dLedgerStore, dLedgerRpcService);
 
         //实例化一个leader选举实现器
         dLedgerLeaderElector = new DLedgerLeaderElector(dLedgerConfig, memberState, dLedgerRpcService);
+
+        //延时任务执行器
         executorService = Executors.newSingleThreadScheduledExecutor(r -> {
+            //仙剑线程
             Thread t = new Thread(r);
+            //设置为守护线程
             t.setDaemon(true);
+            //设置工作线程名字
             t.setName("DLedgerServer-ScheduledExecutor");
             return t;
         });
     }
 
 
+    /**
+     * 启动节点服务器
+     */
     public void startup() {
+        //启动消息存储对象
         this.dLedgerStore.startup();
         this.dLedgerRpcService.startup();
         this.dLedgerEntryPusher.startup();
@@ -114,10 +138,17 @@ public class DLedgerServer implements DLedgerProtocolHander {
         executorService.shutdown();
     }
 
+    /**
+     * 创建一个信息存储对象
+     * @param storeType 消息存储类型：文件、内存
+     * @param config 节点配置
+     * @param memberState 节点状态机
+     * @return
+     */
     private DLedgerStore createDLedgerStore(String storeType, DLedgerConfig config, MemberState memberState) {
-        if (storeType.equals(DLedgerConfig.MEMORY)) {
+        if (storeType.equals(DLedgerConfig.MEMORY)) {//消息存储类型为内存
             return new DLedgerMemoryStore(config, memberState);
-        } else {
+        } else {//消息存储类型为文件
             return new DLedgerMmapFileStore(config, memberState);
         }
     }
