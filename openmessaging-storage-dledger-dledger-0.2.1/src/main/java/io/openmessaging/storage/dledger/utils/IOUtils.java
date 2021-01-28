@@ -145,10 +145,18 @@ public class IOUtils {
         return sb.toString();
     }
 
+    /**
+     * 解析字符串中的内存 返回Properties对象
+     * @param str 字符串
+     * @return
+     */
     public static Properties string2Properties(final String str) {
+        //实例化一个属性对象
         Properties properties = new Properties();
         try {
+            //实例化一个输入流
             InputStream in = new ByteArrayInputStream(str.getBytes(DEFAULT_CHARSET));
+            //将输入流加载属性对象
             properties.load(in);
         } catch (Exception e) {
             return null;

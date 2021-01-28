@@ -46,6 +46,10 @@ public class MmapFileList {
      */
     public static final int BLANK_MAGIC_CODE = -1;
     private static Logger logger = LoggerFactory.getLogger(MmapFile.class);
+
+    /**
+     * 每次批量删除的mappedFile的数量
+     */
     private static final int DELETE_FILES_BATCH_MAX = 10;
 
     /**
@@ -578,33 +582,50 @@ public class MmapFileList {
         }
     }
 
+    /**
+     * 清理过期的mappedFile文件
+     * @param expiredTime 过期时间 默认72小时
+     * @param deleteFilesInterval 删除mappedFile的周期 100毫秒
+     * @param intervalForcibly 强制执行的周期 120s 如果还有其他线程持有对mappedFile的引用 等待120秒 超时后 强制释放线程对文件的引用
+     * @param cleanImmediately 是否立刻执行清理
+     * @return
+     */
     public int deleteExpiredFileByTime(final long expiredTime,
         final int deleteFilesInterval,
         final long intervalForcibly,
         final boolean cleanImmediately) {
+
+        //获取所有的mappedFile
         Object[] mfs = this.copyMappedFiles();
 
         if (null == mfs)
             return 0;
 
         int mfsLength = mfs.length - 1;
+        //将要删除的mappedFile的数量
         int deleteCount = 0;
+        //需要从mappedFile list列表中移除的mappedFile列表
         List<MmapFile> files = new ArrayList<MmapFile>();
         if (null != mfs) {
-            for (int i = 0; i < mfsLength; i++) {
+            for (int i = 0; i < mfsLength; i++) {//遍历每一个mappedFile
                 MmapFile mappedFile = (MmapFile) mfs[i];
+                //文件上一次修改的时间 + 过期时间 文件存在的最大时间
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
-                if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
-                    if (mappedFile.destroy(intervalForcibly)) {
+                if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {//文件超过了72h没有修改 或者需要立刻执行清理
+                    if (mappedFile.destroy(intervalForcibly)) {//消息mappedFile
+                        //将文件添加到刷出列表
                         files.add(mappedFile);
+                        //增加将要删除的mappedFile的数量
                         deleteCount++;
 
+                        //每次最多只能删除10个mappedFile
                         if (files.size() >= DELETE_FILES_BATCH_MAX) {
                             break;
                         }
 
                         if (deleteFilesInterval > 0 && (i + 1) < mfsLength) {
                             try {
+                                //等待100毫秒 执行删除
                                 Thread.sleep(deleteFilesInterval);
                             } catch (InterruptedException e) {
                             }
@@ -619,8 +640,10 @@ public class MmapFileList {
             }
         }
 
+        //从mappedFile list列表中删除mappedFile
         deleteExpiredFiles(files);
 
+        //返回删除的mappedFILE的数量
         return deleteCount;
     }
 
@@ -667,13 +690,24 @@ public class MmapFileList {
         return deleteCount;
     }
 
+    /**
+     * 将内存中的字节数组刷新到磁盘
+     * @param flushLeastPages 至少刷新的页数
+     * @return
+     */
     public boolean flush(final int flushLeastPages) {
+        //刷新结果 是否刷新过内存中的字节数组到磁盘文件
         boolean result = true;
+
+        //获取已经刷新到的那个mappedFile
         MmapFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);
-        if (mappedFile != null) {
+        if (mappedFile != null) {//不为null
+            //将内存中的字节数组刷新到磁盘 返回单个mappedFile文件已经刷新到的位置
             int offset = mappedFile.flush(flushLeastPages);
+            //获取整个mappedFile list已经刷新到的位置
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.flushedWhere;
+            //设置已经刷新到的位置
             this.flushedWhere = where;
         }
 

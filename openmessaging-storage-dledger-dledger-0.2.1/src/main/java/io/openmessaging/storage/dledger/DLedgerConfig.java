@@ -108,16 +108,40 @@ public class DLedgerConfig {
      */
     private int maxVoteIntervalMs = 1000;
 
+    /**
+     * 需要删除的文件的超时时间72小时
+     */
     private int fileReservedHours = 72;
+
+    /**
+     * 每天凌晨4点 检查清理存储的根目录和消息存储的父目录一次
+     */
     private String deleteWhen = "04";
 
+
+    /**
+     * 是否需要检查清理老的文件
+     */
     private float diskSpaceRatioToCheckExpired = Float.parseFloat(System.getProperty("dledger.disk.ratio.check", "0.70"));
+
+    /**
+     * 磁盘文件的使用率 超过这个值时 需要清理文件件下的文件
+     */
     private float diskSpaceRatioToForceClean = Float.parseFloat(System.getProperty("dledger.disk.ratio.clean", "0.85"));
 
+    /**
+     * 是否可以强制清理存储目录下的文件
+     */
     private boolean enableDiskForceClean = true;
 
+    /**
+     * flushedDataService检查将mappedFile list内存中的字节数组刷新到存盘文件的周期
+     */
     private long flushFileInterval = 10;
 
+    /**
+     * 检查点的周期 默认为3s
+     */
     private long checkPointInterval = 3000;
 
     /**
@@ -334,6 +358,10 @@ public class DLedgerConfig {
         this.diskSpaceRatioToForceClean = diskSpaceRatioToForceClean;
     }
 
+    /**
+     * 文件夹满了 标志值 90%
+     * @return
+     */
     public float getDiskFullRatio() {
         float ratio = diskSpaceRatioToForceClean + 0.05f;
         if (ratio > 0.95f) {

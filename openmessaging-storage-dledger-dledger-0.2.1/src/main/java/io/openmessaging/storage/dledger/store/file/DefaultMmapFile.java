@@ -263,8 +263,13 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
             return viewed(viewedBuffer);
     }
 
+    /**
+     * 获取当前mappedFile映射的磁盘文件 上一次修改的时间
+     * @return
+     */
     @Override
     public long getLastModifiedTimestamp() {
+        //返回文件上一次修改的时间
         return this.file.lastModified();
     }
 
@@ -314,20 +319,26 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
     }
 
     /**
-     * @return The current flushed position
+     * 将内存中的字节数组刷新到磁盘文件
+     * @param flushLeastPages 至少刷新的页数
+     * @return
      */
     @Override
     public int flush(final int flushLeastPages) {
-        if (this.isAbleToFlush(flushLeastPages)) {
-            if (this.hold()) {
+        if (this.isAbleToFlush(flushLeastPages)) {//当前mappedFile写满了 一定可以刷新；没有写满 判断已经刷新的位置和已经写到的位置之间可以构成的页数
+            if (this.hold()) {//当前线程对mappedFile的引用计数加1
+                //获取已经写到的位置
                 int value = getReadPosition();
                 try {
+                    //将mappedByteBuffer中的字节数组强制刷新到磁盘
                     this.mappedByteBuffer.force();
                 } catch (Throwable e) {
                     logger.error("Error occurred when force data to disk.", e);
                 }
 
+                //设置已经刷新到的位置为已经写到的位置
                 this.flushedPosition.set(value);
+                //释放当前线程对mappedFile的引用
                 this.release();
             } else {
                 logger.warn("in flush, hold failed, flush offset = " + this.flushedPosition.get());
@@ -343,18 +354,26 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         return this.committedPosition.get();
     }
 
+    /**
+     * 上次刷新到的位置到mappedFile写到的位置之间的字节数是否刚好可以构成flushLeastPages页
+     * @param flushLeastPages 至少刷新的页数
+     * @return
+     */
     private boolean isAbleToFlush(final int flushLeastPages) {
+        //获取上次已经刷新到的位置
         int flushedPos = this.flushedPosition.get();
+        //获取已经写到的位置
         int writePos = getReadPosition();
 
-        if (this.isFull()) {
+        if (this.isFull()) {//当前mappedFile已经写满 必须将内存中的字节数组刷新到磁盘
             return writePos > flushedPos;
         }
 
-        if (flushLeastPages > 0) {
+        if (flushLeastPages > 0) {//至少刷新的页数
             return ((writePos / OS_PAGE_SIZE) - (flushedPos / OS_PAGE_SIZE)) >= flushLeastPages;
         }
 
+        //返回可以刷新
         return writePos > flushedPos;
     }
 

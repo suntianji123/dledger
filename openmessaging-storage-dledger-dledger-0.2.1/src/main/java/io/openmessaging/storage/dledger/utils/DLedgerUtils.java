@@ -46,12 +46,20 @@ public class DLedgerUtils {
         return System.currentTimeMillis() - beginTime;
     }
 
+    /**
+     * 判断是否到了某些时间点
+     * @param when 时间点小时字符串
+     * @return
+     */
     public static boolean isItTimeToDo(final String when) {
+        //获取所有时间点
         String[] whiles = when.split(";");
         if (whiles.length > 0) {
             Calendar now = Calendar.getInstance();
-            for (String w : whiles) {
+            for (String w : whiles) {//遍历时间点
+                //获取需要的时间点
                 int nowHour = Integer.parseInt(w);
+                //当前小时
                 if (nowHour == now.get(Calendar.HOUR_OF_DAY)) {
                     return true;
                 }
@@ -61,22 +69,33 @@ public class DLedgerUtils {
         return false;
     }
 
+    /**
+     * 获取某个文件夹已经使用空间占总分配空间的百分比
+     * @param path 路径
+     * @return
+     */
     public static double getDiskPartitionSpaceUsedPercent(final String path) {
         if (null == path || path.isEmpty())
             return -1;
 
         try {
+            //获取文件夹
             File file = new File(path);
+            System.out.println(file.getAbsolutePath());
 
             if (!file.exists())
                 return -1;
 
+            //获取文件夹分配的总的大小
             long totalSpace = file.getTotalSpace();
 
             if (totalSpace > 0) {
+                //获取剩余空间
                 long freeSpace = file.getFreeSpace();
+                //获取已经使用的空间
                 long usedSpace = totalSpace - freeSpace;
 
+                //返回已经使用百分比
                 return usedSpace / (double) totalSpace;
             }
         } catch (Exception e) {

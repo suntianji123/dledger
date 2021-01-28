@@ -65,7 +65,14 @@ public class DLedgerMmapFileStore extends DLedgerStore {
      */
     private long ledgerEndIndex = -1;
 
+    /**
+     * 当前节点已经提交到的索引值
+     */
     private long committedIndex = -1;
+
+    /**
+     * 当前节点的提交到的位置 提交实体的偏移量 + 消息所占的字节数
+     */
     private long committedPos = -1;
 
     /**
@@ -94,7 +101,15 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     private MmapFileList indexFileList;
     private ThreadLocal<ByteBuffer> localEntryBuffer;
     private ThreadLocal<ByteBuffer> localIndexBuffer;
+
+    /**
+     * 将消息 mappedFile list  / 索引 mappedFile list内存中的字节数组刷新到磁盘文件
+     */
     private FlushDataService flushDataService;
+
+    /**
+     * 清理掉 data mappedFile list中过期的mappedFile 单次批量删除最多10个
+     */
     private CleanSpaceService cleanSpaceService;
     private boolean isDiskFull = false;
 
@@ -149,7 +164,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
         //恢复文件
         recover();
+
+        //启动刷新内存数据到磁盘文件的服务
         flushDataService.start();
+
+        //启动清理过期的消息mappedFile服务
         cleanSpaceService.start();
     }
 
@@ -348,7 +367,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 //获取消息的模数
                 int magic = byteBuffer.getInt();
 
-                if (magic == MmapFileList.BLANK_MAGIC_CODE) {//空白模数 当前mappedFile之后没有消息
+
+
+                if (magic == MmapFileList.BLANK_MAGIC_CODE) {//空白模数 当
+
+                    // 前mappedFile之后没有消息
                     //将偏移量 移动到下一个mappedFile的第一个消息的起始偏移量
                     processOffset = mappedFile.getFileFromOffset() + mappedFile.getFileSize();
                     //下一个mappedFile文件的索引
@@ -532,11 +555,12 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
         //检查所mappeFile lit下所有的mappedFile连续
         PreConditions.check(indexFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check index file order failed after recovery");
-        //Load the committed index from checkpoint
+        //从磁盘文件中加载最后一条消息的index 提交索引值
         Properties properties = loadCheckPoint();
         if (properties == null || !properties.containsKey(COMMITTED_INDEX_KEY)) {
             return;
         }
+        //获取提交索引值
         String committedIndexStr = String.valueOf(properties.get(COMMITTED_INDEX_KEY)).trim();
         if (committedIndexStr.length() <= 0) {
             return;
@@ -731,21 +755,37 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
     }
 
+    /**
+     * 将检查点序列化本地文件
+     */
     void persistCheckPoint() {
         try {
+            //实例化一个属性对象
             Properties properties = new Properties();
+            //将当前节点最后一个消息的索引值 放入属性对象
             properties.put(END_INDEX_KEY, getLedgerEndIndex());
+
+            //将当前节点最后一个提交的索引值 放入属性对象
             properties.put(COMMITTED_INDEX_KEY, getCommittedIndex());
+
+            //将属性对象中的属性值 转为字符串格式
             String data = IOUtils.properties2String(properties);
+            //将字符串写入文件
             IOUtils.string2File(data, dLedgerConfig.getDefaultPath() + File.separator + CHECK_POINT_FILE);
         } catch (Throwable t) {
             logger.error("Persist checkpoint failed", t);
         }
     }
 
+    /**
+     * 加载序列化本地磁盘文件的当前节点最后一个消息的索引值 提交索引值
+     * @return
+     */
     Properties loadCheckPoint() {
         try {
+            //读取文件中的字符串
             String data = IOUtils.file2String(dLedgerConfig.getDefaultPath() + File.separator + CHECK_POINT_FILE);
+            //解析字符串中的内容 返回Properties对象
             Properties properties = IOUtils.string2Properties(data);
             return properties;
         } catch (Throwable t) {
@@ -822,6 +862,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return committedIndex;
     }
 
+    /**
+     * 更新提交到的索引值
+     * @param term
+     * @param newCommittedIndex
+     */
     public void updateCommittedIndex(long term, long newCommittedIndex) {
         if (newCommittedIndex == -1
             || ledgerEndIndex == -1
@@ -834,14 +879,21 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             logger.warn("[MONITOR]Skip update committed index for new={} < old={} or new={} < beginIndex={}", newCommittedIndex, this.committedIndex, newCommittedIndex, this.ledgerBeginIndex);
             return;
         }
+
+        //当前节点中最后一条消息的索引值
         long endIndex = ledgerEndIndex;
-        if (newCommittedIndex > endIndex) {
+        if (newCommittedIndex > endIndex) {//提交索引值不能大于最后一条消息的索引值
             //If the node fall behind too much, the committedIndex will be larger than enIndex.
             newCommittedIndex = endIndex;
         }
+
+        //获取提交索引值的那条消息实体
         DLedgerEntry dLedgerEntry = get(newCommittedIndex);
+        //消息存在
         PreConditions.check(dLedgerEntry != null, DLedgerResponseCode.DISK_ERROR);
+        //设置提交索引值
         this.committedIndex = newCommittedIndex;
+        //设置提交偏移量
         this.committedPos = dLedgerEntry.getPos() + dLedgerEntry.getSize();
     }
 
@@ -886,26 +938,41 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         this.flushDataService.shutdown();
     }
 
+    /**
+     * 刷新数据服务类
+     */
     class FlushDataService extends ShutdownAbleThread {
 
         public FlushDataService(String name, Logger logger) {
             super(name, logger);
         }
 
+        /**
+         * 执行任务
+         */
         @Override public void doWork() {
             try {
+                //获取开始时间
                 long start = System.currentTimeMillis();
+
+                //将消息 mappedFile list内存中的字节数组刷新到磁盘文件
                 DLedgerMmapFileStore.this.dataFileList.flush(0);
+
+                //将索引 mappedFile list内存中的字节数组刷新到磁盘文件
                 DLedgerMmapFileStore.this.indexFileList.flush(0);
-                if (DLedgerUtils.elapsed(start) > 500) {
+                if (DLedgerUtils.elapsed(start) > 500) {//计算消耗时间 大于500毫秒 记录日志
                     logger.info("Flush data cost={} ms", DLedgerUtils.elapsed(start));
                 }
 
+                //如果上一次检查点的时间 超过了3秒
                 if (DLedgerUtils.elapsed(lastCheckPointTimeMs) > dLedgerConfig.getCheckPointInterval()) {
+                    //将最后一个消息的索引值 提交索引值写入到磁盘文件
                     persistCheckPoint();
+                    //设置最后检查点的时间
                     lastCheckPointTimeMs = System.currentTimeMillis();
                 }
 
+                //等待10秒 继续下一次检测
                 waitForRunning(dLedgerConfig.getFlushFileInterval());
             } catch (Throwable t) {
                 logger.info("Error in {}", getName(), t);
@@ -914,41 +981,70 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
     }
 
+    /**
+     * 清理空格的服务
+     */
     class CleanSpaceService extends ShutdownAbleThread {
 
+        /**
+         * 基本目录使用的百分比
+         */
         double storeBaseRatio = DLedgerUtils.getDiskPartitionSpaceUsedPercent(dLedgerConfig.getStoreBaseDir());
+
+        /**
+         * 存入消息 mappeFile父目录使用的百分比
+         */
         double dataRatio = DLedgerUtils.getDiskPartitionSpaceUsedPercent(dLedgerConfig.getDataStorePath());
 
         public CleanSpaceService(String name, Logger logger) {
             super(name, logger);
         }
 
+        /**
+         * 清理消息 mappedFile list中过期的mappedFile 防止存储目录被使用过多
+         */
         @Override public void doWork() {
             try {
+                //获取根目录使用百分比
                 storeBaseRatio = DLedgerUtils.getDiskPartitionSpaceUsedPercent(dLedgerConfig.getStoreBaseDir());
+                //获取存放消息的目录使用百分比
                 dataRatio = DLedgerUtils.getDiskPartitionSpaceUsedPercent(dLedgerConfig.getDataStorePath());
                 long hourOfMs = 3600L * 1000L;
+                //获取需要删除的文件的过期时间
                 long fileReservedTimeMs = dLedgerConfig.getFileReservedHours() *  hourOfMs;
                 if (fileReservedTimeMs < hourOfMs) {
                     logger.warn("The fileReservedTimeMs={} is smaller than hourOfMs={}", fileReservedTimeMs, hourOfMs);
                     fileReservedTimeMs =  hourOfMs;
                 }
-                //If the disk is full, should prevent more data to get in
+                //文件存储的根目录 或者消息 mappedFile的父目录使用率超过了90% 不能再往文件夹中写数据
                 DLedgerMmapFileStore.this.isDiskFull = isNeedForbiddenWrite();
+
+                //如果当前时间是凌晨4点
                 boolean timeUp = isTimeToDelete();
+
+                //需要清理老的文件
                 boolean checkExpired = isNeedCheckExpired();
+
+                //需要强制清理
                 boolean forceClean = isNeedForceClean();
+
+                //配置了可以强制清理存储目录下的文件
                 boolean enableForceClean = dLedgerConfig.isEnableDiskForceClean();
-                if (timeUp || checkExpired) {
+                if (timeUp || checkExpired) {//时间到 需要检查清理老的文件
+
+                    //每次最多删除 10个mappedFILE文件
                     int count = getDataFileList().deleteExpiredFileByTime(fileReservedTimeMs, 100, 120 * 1000, forceClean && enableForceClean);
                     if (count > 0 || (forceClean && enableForceClean) || isDiskFull) {
+                        //记录删除过mappedFILE
                         logger.info("Clean space count={} timeUp={} checkExpired={} forceClean={} enableForceClean={} diskFull={} storeBaseRatio={} dataRatio={}",
                             count, timeUp, checkExpired, forceClean, enableForceClean, isDiskFull, storeBaseRatio, dataRatio);
                     }
-                    if (count > 0) {
+                    if (count > 0) {//重置节点第一条消息的index值 删除index mappedFile list之前的mappedFile
                         DLedgerMmapFileStore.this.reviseLedgerBeginIndex();
                     }
                 }
+
+                //等待100毫秒 继续执行
                 waitForRunning(100);
             } catch (Throwable t) {
                 logger.info("Error in {}", getName(), t);
@@ -956,7 +1052,12 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             }
         }
 
+        /**
+         * 判断是否到了清理的时间
+         * @return
+         */
         private boolean isTimeToDelete() {
+            //凌晨4点
             String when = DLedgerMmapFileStore.this.dLedgerConfig.getDeleteWhen();
             if (DLedgerUtils.isItTimeToDo(when)) {
                 return true;
@@ -965,22 +1066,37 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             return false;
         }
 
+        /**
+         * 判断是否需要检查清理超时的文件夹下的文件
+         *  文件夹的使用率超过了70%
+         * @return
+         */
         private boolean isNeedCheckExpired() {
-            if (storeBaseRatio > dLedgerConfig.getDiskSpaceRatioToCheckExpired()
-                || dataRatio > dLedgerConfig.getDiskSpaceRatioToCheckExpired()) {
+            if (storeBaseRatio > dLedgerConfig.getDiskSpaceRatioToCheckExpired()//存储目录使用率超过了70%
+                || dataRatio > dLedgerConfig.getDiskSpaceRatioToCheckExpired()) {//消息存储父目录使用率超过了70%
+                //需要清理超时的文件夹下的老的文件
                 return true;
             }
             return false;
         }
 
+        /**
+         * 判断是否需要清理存储目录 /消息存储父目录下的文件
+         * @return
+         */
         private boolean isNeedForceClean() {
-            if (storeBaseRatio > dLedgerConfig.getDiskSpaceRatioToForceClean()
-                || dataRatio > dLedgerConfig.getDiskSpaceRatioToForceClean()) {
+            if (storeBaseRatio > dLedgerConfig.getDiskSpaceRatioToForceClean()//存储目录的使用率达到90%
+                || dataRatio > dLedgerConfig.getDiskSpaceRatioToForceClean()) {//消息存储父目录的使用率达到90%
                 return true;
             }
             return false;
         }
 
+        /**
+         * 判断是否禁止写文件夹中写入数据
+         * 文件夹的使用率超过了90%
+         * @return
+         */
         private boolean isNeedForbiddenWrite() {
             if (storeBaseRatio > dLedgerConfig.getDiskFullRatio()
                 || dataRatio > dLedgerConfig.getDiskFullRatio()) {
