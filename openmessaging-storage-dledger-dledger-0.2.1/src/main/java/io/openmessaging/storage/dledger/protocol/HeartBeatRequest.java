@@ -17,6 +17,9 @@
 
 package io.openmessaging.storage.dledger.protocol;
 
+/**
+ * 发送心跳的请求
+ */
 public class HeartBeatRequest extends RequestOrResponse {
 
 }

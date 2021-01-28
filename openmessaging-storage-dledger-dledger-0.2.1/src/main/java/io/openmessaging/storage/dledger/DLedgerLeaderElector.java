@@ -161,8 +161,13 @@ public class DLedgerLeaderElector {
         this.maxVoteIntervalMs = dLedgerConfig.getMaxVoteIntervalMs();
     }
 
+    /**
+     * 处理心跳
+     * @param request 心跳请求
+     * @return
+     * @throws Exception
+     */
     public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
-
         if (!memberState.isPeerMember(request.getLeaderId())) {
             logger.warn("[BUG] [HandleHeartBeat] remoteId={} is an unknown member", request.getLeaderId());
             return CompletableFuture.completedFuture(new HeartBeatResponse().term(memberState.currTerm()).code(DLedgerResponseCode.UNKNOWN_MEMBER.getCode()));
@@ -325,26 +330,50 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 发送心跳给集群下所有的节点
+     * @param term 当前状态机轮次
+     * @param leaderId 当前状态机leaderId
+     * @throws Exception
+     */
     private void sendHeartbeats(long term, String leaderId) throws Exception {
+        //所有对端节点的数量
         final AtomicInteger allNum = new AtomicInteger(1);
+        //发送成功的节点数量
         final AtomicInteger succNum = new AtomicInteger(1);
+        //没有准备好的节点数量
         final AtomicInteger notReadyNum = new AtomicInteger(0);
+        //最大轮次
         final AtomicLong maxTerm = new AtomicLong(-1);
+        //是否有不一致的leaderId
         final AtomicBoolean inconsistLeader = new AtomicBoolean(false);
+        //阻塞当前线程的计数器
         final CountDownLatch beatLatch = new CountDownLatch(1);
+
+        //发送心跳的开始时间
         long startHeartbeatTimeMs = System.currentTimeMillis();
-        for (String id : memberState.getPeerMap().keySet()) {
-            if (memberState.getSelfId().equals(id)) {
+        for (String id : memberState.getPeerMap().keySet()) {//遍历集群下所有的节点
+            if (memberState.getSelfId().equals(id)) {//过滤当前节点
                 continue;
             }
+
+            //实例化一个发送心跳的请求
             HeartBeatRequest heartBeatRequest = new HeartBeatRequest();
+
+            //设置集群组名
             heartBeatRequest.setGroup(memberState.getGroup());
+            //设置本地节点id
             heartBeatRequest.setLocalId(memberState.getSelfId());
+            //设置对端节点id
             heartBeatRequest.setRemoteId(id);
+            //设置leaderId
             heartBeatRequest.setLeaderId(leaderId);
+            //设置当前节点状态机轮次
             heartBeatRequest.setTerm(term);
+
+            //发送心跳请求
             CompletableFuture<HeartBeatResponse> future = dLedgerRpcService.heartBeat(heartBeatRequest);
-            future.whenComplete((HeartBeatResponse x, Throwable ex) -> {
+            future.whenComplete((HeartBeatResponse x, Throwable ex) -> {//异步操作添加回调
                 try {
                     if (ex != null) {
                         memberState.getPeersLiveTable().put(id, Boolean.FALSE);
@@ -404,19 +433,33 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 角色为leader的处理逻辑
+     * @throws Exception
+     */
     private void maintainAsLeader() throws Exception {
-        if (DLedgerUtils.elapsed(lastSendHeartBeatTime) > heartBeatTimeIntervalMs) {
+        if (DLedgerUtils.elapsed(lastSendHeartBeatTime) > heartBeatTimeIntervalMs) {//需要发送心跳
+            //当前轮次
             long term;
+            //leaderId
             String leaderId;
-            synchronized (memberState) {
-                if (!memberState.isLeader()) {
+            synchronized (memberState) {//状态机加锁
+                if (!memberState.isLeader()) {//不是leader
                     //stop sending
                     return;
                 }
+
+                //获取当前轮次
                 term = memberState.currTerm();
+
+                //获取状态机的leaderId
                 leaderId = memberState.getLeaderId();
+
+                //设置上一次发送心跳的时间
                 lastSendHeartBeatTime = System.currentTimeMillis();
             }
+
+            //发送心跳
             sendHeartbeats(term, leaderId);
         }
     }

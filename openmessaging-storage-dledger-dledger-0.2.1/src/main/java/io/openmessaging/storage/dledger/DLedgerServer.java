@@ -162,10 +162,17 @@ public class DLedgerServer implements DLedgerProtocolHander {
         return memberState;
     }
 
+    /**
+     * 处理心跳
+     * @param request 心跳请求
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         try {
-
+            //当前节点的id必须与心跳请求的对端节点相同
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
+            //当前节点的集群名必须与请求的对端节点的集群名相同
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
             return dLedgerLeaderElector.handleHeartBeat(request);
         } catch (DLedgerException e) {

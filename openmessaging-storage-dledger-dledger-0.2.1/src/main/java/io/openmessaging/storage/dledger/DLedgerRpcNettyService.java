@@ -102,6 +102,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         }
     });
 
+    /**
+     * 发送心跳请求的任务执行器
+     */
     private ExecutorService heartBeatInvokeExecutor = Executors.newCachedThreadPool(new ThreadFactory() {
         private AtomicInteger threadIndex = new AtomicInteger(0);
 
@@ -166,16 +169,30 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return memberState.getPeerAddr(request.getRemoteId());
     }
 
+    /**
+     * 给对端节点发送心跳请求
+     * @param request 心跳请求对象
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<HeartBeatResponse> heartBeat(HeartBeatRequest request) throws Exception {
+        //实例化一个异步操作对象
         CompletableFuture<HeartBeatResponse> future = new CompletableFuture<>();
+
         heartBeatInvokeExecutor.execute(() -> {
             try {
+                //创建一个心跳的请求
                 RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.HEART_BEAT.getCode(), null);
+                //设置远程命令的请求体为请求转为的字节数组
                 wrapperRequest.setBody(JSON.toJSONBytes(request));
+                //异步发送异步请求 请求超时时间为3秒
                 remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
+                    //获取响应
                     RemotingCommand responseCommand = responseFuture.getResponseCommand();
-                    if (responseCommand != null) {
+                    if (responseCommand != null) {//对端节点有响应
+                        //获取心跳的响应
                         HeartBeatResponse response = JSON.parseObject(responseCommand.getBody(), HeartBeatResponse.class);
+                        //将心跳响应设置到异步操作结果
                         future.complete(response);
                     } else {
                         logger.error("HeartBeat request time out, {}", request.baseInfo());
@@ -413,6 +430,7 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 break;
             }
             case HEART_BEAT: {
+                //解码消息体 获取心跳请求
                 HeartBeatRequest heartBeatRequest = JSON.parseObject(request.getBody(), HeartBeatRequest.class);
                 CompletableFuture<HeartBeatResponse> future = handleHeartBeat(heartBeatRequest);
                 future.whenCompleteAsync((x, y) -> {
@@ -444,6 +462,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return dLedgerServer.handleLeadershipTransfer(leadershipTransferRequest);
     }
 
+    /**
+     * 处理心跳
+     * @param request 心跳请求
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         return dLedgerServer.handleHeartBeat(request);

@@ -26,6 +26,10 @@ public enum DLedgerResponseCode {
     SUCCESS(200, ""),
     TIMEOUT(300, ""),
     METADATA_ERROR(301, ""),
+
+    /**
+     * 远程rpc server响应码 网络错误（远程服务器连接不上）
+     */
     NETWORK_ERROR(302, ""),
     UNSUPPORTED(303, ""),
     UNKNOWN_GROUP(400, ""),
