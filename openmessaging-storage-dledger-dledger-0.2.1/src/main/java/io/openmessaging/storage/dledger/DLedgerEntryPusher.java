@@ -119,6 +119,9 @@ public class DLedgerEntryPusher {
         this.quorumAckChecker = new QuorumAckChecker(logger);
     }
 
+    /**
+     * 启动消息推送器
+     */
     public void startup() {
         entryHandler.start();
         quorumAckChecker.start();

@@ -31,6 +31,9 @@ public enum DLedgerResponseCode {
     UNKNOWN_GROUP(400, ""),
     UNKNOWN_MEMBER(401, ""),
     UNEXPECTED_MEMBER(402, ""),
+    /**
+     * 过期的轮次
+     */
     EXPIRED_TERM(403, ""),
     NOT_LEADER(404, ""),
     NOT_FOLLOWER(405, ""),

@@ -17,14 +17,39 @@
 
 package io.openmessaging.storage.dledger.protocol;
 
+/**
+ * 请求或者响应类
+ */
 public class RequestOrResponse {
 
+    /**
+     * 集群组名
+     */
     protected String group;
+
+    /**
+     * 对端节点id
+     */
     protected String remoteId;
+
+    /**
+     * 本地id
+     */
     protected String localId;
+
+    /**
+     * 响应码
+     */
     protected int code = DLedgerResponseCode.SUCCESS.getCode();
 
+    /**
+     * leaderid
+     */
     protected String leaderId = null;
+
+    /**
+     * 状态机或者最后一条消息的轮次
+     */
     protected long term = -1;
 
     public String getGroup() {
@@ -86,12 +111,23 @@ public class RequestOrResponse {
         this.term = term;
     }
 
+    /**
+     * 拷贝请求中的信息
+     * @param other 氢气
+     * @return
+     */
     public RequestOrResponse copyBaseInfo(RequestOrResponse other) {
+        //设置集群名
         this.group = other.group;
+        //设置轮次
         this.term = other.term;
+        //设置请求码
         this.code = other.code;
+        //设置本地节点id
         this.localId = other.localId;
+        //设置远程节点id
         this.remoteId = other.remoteId;
+        //设置leaderid
         this.leaderId = other.leaderId;
         return this;
     }

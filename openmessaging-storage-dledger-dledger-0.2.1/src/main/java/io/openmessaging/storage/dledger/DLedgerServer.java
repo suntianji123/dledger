@@ -124,8 +124,13 @@ public class DLedgerServer implements DLedgerProtocolHander {
     public void startup() {
         //启动消息存储对象
         this.dLedgerStore.startup();
+        //启动rpc server / rpc client
         this.dLedgerRpcService.startup();
+
+        //启动消息推送器
         this.dLedgerEntryPusher.startup();
+
+        //启动选举实现器
         this.dLedgerLeaderElector.startup();
         executorService.scheduleAtFixedRate(this::checkPreferredLeader, 1000, 1000, TimeUnit.MILLISECONDS);
     }
@@ -173,9 +178,17 @@ public class DLedgerServer implements DLedgerProtocolHander {
         }
     }
 
+    /**
+     * 处理拉票请求
+     * @param request 对端节点发起的拉票请求对象
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<VoteResponse> handleVote(VoteRequest request) throws Exception {
         try {
+            //请求的目标节点id必须与当前节点id相等
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
+            //请求的目标集群名必须与当前节点所处的集群一致
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
             return dLedgerLeaderElector.handleVote(request, false);
         } catch (DLedgerException e) {

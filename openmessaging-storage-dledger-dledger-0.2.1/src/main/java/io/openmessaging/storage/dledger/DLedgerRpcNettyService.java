@@ -90,6 +90,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         }
     });
 
+    /**
+     * 拉票执行器 如果之前的线程可用 用之前的线程 否则线程将会回收掉
+     */
     private ExecutorService voteInvokeExecutor = Executors.newCachedThreadPool(new ThreadFactory() {
         private AtomicInteger threadIndex = new AtomicInteger(0);
 
@@ -153,6 +156,11 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
 
     }
 
+    /**
+     * 根据请求获取对端节点地址
+     * @param request 请求对象
+     * @return
+     */
     private String getPeerAddr(RequestOrResponse request) {
         //support different groups in the near future
         return memberState.getPeerAddr(request.getRemoteId());
@@ -182,18 +190,32 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return future;
     }
 
+    /**
+     * 发起拉票请求
+     * @param request 拉票情趣
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<VoteResponse> vote(VoteRequest request) throws Exception {
+        //实例化一个异步操作对象
         CompletableFuture<VoteResponse> future = new CompletableFuture<>();
+        //向投票执行器添加一个任务
         voteInvokeExecutor.execute(() -> {
             try {
+                //创建一个远程命令行请求 请求码为拉票
                 RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.VOTE.getCode(), null);
+                //设置请求体 将请求序列化为字节数组
                 wrapperRequest.setBody(JSON.toJSONBytes(request));
+                //向对端节点发起异步的拉票请求 超时时间为3秒 对端响应后添加回调
                 remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
+                    //获取响应的命令行对象
                     RemotingCommand responseCommand = responseFuture.getResponseCommand();
-                    if (responseCommand != null) {
+                    if (responseCommand != null) {//对端有响应
+                        //将响应体反序列化拉票响应
                         VoteResponse response = JSON.parseObject(responseCommand.getBody(), VoteResponse.class);
+                        //将响应设置到异步操作的结果
                         future.complete(response);
-                    } else {
+                    } else {//对端地址不存在
                         logger.error("Vote request time out, {}", request.baseInfo());
                         future.complete(new VoteResponse());
                     }
@@ -329,20 +351,15 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
     }
 
     /**
-     * The core method to handle rpc requests. The advantages of using future instead of callback:
-     * <p>
-     * 1. separate the caller from actual executor, which make it able to handle the future results by the caller's wish
-     * 2. simplify the later execution method
-     * <p>
-     * CompletableFuture is an excellent choice, whenCompleteAsync will handle the response asynchronously. With an
-     * independent thread-pool, it will improve performance and reduce blocking points.
-     *
-     * @param ctx
-     * @param request
+     * 处理对端节点发起的请求
+     * @param ctx 与对端节点建立的channel连接
+     * @param request 对端节点发起的请求
      * @return
      * @throws Exception
      */
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws Exception {
+
+        //获取请求码
         DLedgerRequestCode requestCode = DLedgerRequestCode.valueOf(request.getCode());
         switch (requestCode) {
             case METADATA: {
@@ -385,8 +402,10 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 }, futureExecutor);
                 break;
             }
-            case VOTE: {
+            case VOTE: {//拉票
+                //反序列化拉票请求
                 VoteRequest voteRequest = JSON.parseObject(request.getBody(), VoteRequest.class);
+                //处理拉票请求 返回响应的异步操作
                 CompletableFuture<VoteResponse> future = handleVote(voteRequest);
                 future.whenCompleteAsync((x, y) -> {
                     writeResponse(x, y, request, ctx);
@@ -430,6 +449,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return dLedgerServer.handleHeartBeat(request);
     }
 
+    /**
+     * 处理对端节点发起的拉票请求
+     * @param request 拉票请求
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<VoteResponse> handleVote(VoteRequest request) throws Exception {
         VoteResponse response = dLedgerServer.handleVote(request).get();

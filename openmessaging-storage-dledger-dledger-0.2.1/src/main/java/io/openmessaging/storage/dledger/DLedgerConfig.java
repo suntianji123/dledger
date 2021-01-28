@@ -156,6 +156,9 @@ public class DLedgerConfig {
 
     private boolean enablePushToFollower = true;
 
+    /**
+     * 优先设置的节点id
+     */
     @Parameter(names = {"--preferred-leader-id"}, description = "Preferred LeaderId")
     private String preferredLeaderId;
     private long maxLeadershipTransferWaitIndex = 1000;

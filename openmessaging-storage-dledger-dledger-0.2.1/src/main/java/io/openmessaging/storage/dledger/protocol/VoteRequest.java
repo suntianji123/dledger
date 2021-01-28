@@ -17,10 +17,19 @@
 
 package io.openmessaging.storage.dledger.protocol;
 
+/**
+ * 拉票请求类
+ */
 public class VoteRequest extends RequestOrResponse {
 
+    /**
+     * 发起请求节点的最后一条消息的index值
+     */
     private long ledgerEndIndex = -1;
 
+    /**
+     * 发起请求节点的最后一条消息的轮次
+     */
     private long ledgerEndTerm = -1;
 
     public long getLedgerEndIndex() {

@@ -20,11 +20,18 @@ package io.openmessaging.storage.dledger.protocol;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 远程命令请求码
+ */
 public enum DLedgerRequestCode {
     UNKNOWN(-1, ""),
     METADATA(50000, ""),
     APPEND(50001, ""),
     GET(50002, ""),
+
+    /**
+     * 拉票
+     */
     VOTE(51001, ""),
     HEART_BEAT(51002, ""),
     PULL(51003, ""),

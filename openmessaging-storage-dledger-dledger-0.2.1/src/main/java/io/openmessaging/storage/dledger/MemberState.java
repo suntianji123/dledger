@@ -274,6 +274,11 @@ public class MemberState {
         return peerMap.get(leaderId);
     }
 
+    /**
+     * 根据节点id获取节点地址
+     * @param peerId 节点id
+     * @return
+     */
     public String getPeerAddr(String peerId) {
         return peerMap.get(peerId);
     }
@@ -298,6 +303,11 @@ public class MemberState {
         return peerMap.size();
     }
 
+    /**
+     * 判断某个节点id 是否为当前集群下的成员
+     * @param id 节点id
+     * @return
+     */
     public boolean isPeerMember(String id) {
         return id != null && peerMap.containsKey(id);
     }

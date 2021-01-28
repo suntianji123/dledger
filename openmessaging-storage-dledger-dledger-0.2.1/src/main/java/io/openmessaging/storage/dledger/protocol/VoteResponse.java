@@ -19,8 +19,14 @@ package io.openmessaging.storage.dledger.protocol;
 
 import static io.openmessaging.storage.dledger.protocol.VoteResponse.RESULT.UNKNOWN;
 
+/**
+ * 拉票响应类
+ */
 public class VoteResponse extends RequestOrResponse {
 
+    /**
+     * 拉票结果枚举
+     */
     public RESULT voteResult = UNKNOWN;
 
     public VoteResponse() {
@@ -63,11 +69,19 @@ public class VoteResponse extends RequestOrResponse {
          * 接受
          */
         ACCEPT,
+
+        /**
+         * 拒绝处理，投票成为leader的节点id 不是这个集群下的成员
+         */
         REJECT_UNKNOWN_LEADER,
+
+        /**
+         *拒绝处理，不是自己投给自己，但是投票的目标节点id与请求的节点id相等
+         */
         REJECT_UNEXPECTED_LEADER,
 
         /**
-         * 拒绝，发起投票节点维护的投票轮次小于对端节点的维护的投票轮次，更新自己的投票轮次
+         * 拒绝，发起请求的节点的状态机轮次小于对端节点状态机的轮次
          */
         REJECT_EXPIRED_VOTE_TERM,
 
@@ -77,31 +91,34 @@ public class VoteResponse extends RequestOrResponse {
         REJECT_ALREADY_VOTED,
 
         /**
-         * 拒绝原因是在集群中已经有leader了
+         * 拒绝原因是对端节点在集群中已经有leader了
          */
         REJECT_ALREADY_HAS_LEADER,
 
         /**
-         * 拒绝，对端节点的投票轮次小于发起投票节点的投票轮次，对端节点使用发起节点的投票轮次进入Candidata状态
+         * 拒绝，发起请求的节点的状态机轮次大于对端节点的状态机轮次 对端节点需要将自己的角色改为候选人 并且立刻发起拉票请求
          */
         REJECT_TERM_NOT_READY,
 
 
         /**
-         * 拒绝，发起投票节点维护的投票轮次小于对端leader节点的维护的投票轮次
+         * 拒绝，发起投票节点的最后一条消息的轮次小于对端节点的最后一条的轮次
          */
         REJECT_TERM_SMALL_THAN_LEDGER,
 
         /**
-         * 拒绝，发起投票节点的leader维护的投票轮次小于对端节点leader的维护的投票轮次
+         * 拒绝，发起投票节点的最后一条消息的小于对端节点最后一条消息的轮次
          */
         REJECT_EXPIRED_LEDGER_TERM,
 
         /**
-         * 拒绝，发起投票节点的投票轮次与对端节点的投票轮次相同，但是发起投票节点的同步的日志偏移量小于对端的日志偏移量
+         *拒绝，发起投票节点的最后一条消息的轮次与对端节点的最后一条消息的轮次相等，但是发起投票请求的节点的最后一条消息的index值 小于对端节点最后一条消息的index值
          */
         REJECT_SMALL_LEDGER_END_INDEX,
 
+        /**
+         * 拒绝，对端节点配置了优先被设置为leader
+         */
         REJECT_TAKING_LEADERSHIP;
     }
 
@@ -110,7 +127,7 @@ public class VoteResponse extends RequestOrResponse {
      */
     public enum ParseResult {
         /**
-         * 等待投票
+         * 等待投票 不需要将term + 1
          */
         WAIT_TO_REVOTE,
 
@@ -125,7 +142,7 @@ public class VoteResponse extends RequestOrResponse {
         PASSED,
 
         /**
-         * 等待下一个投票
+         * 等待下一个投票 需要将term + 1
          */
         WAIT_TO_VOTE_NEXT;
     }

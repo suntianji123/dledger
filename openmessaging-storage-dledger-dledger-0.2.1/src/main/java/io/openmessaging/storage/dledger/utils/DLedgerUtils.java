@@ -81,7 +81,6 @@ public class DLedgerUtils {
         try {
             //获取文件夹
             File file = new File(path);
-            System.out.println(file.getAbsolutePath());
 
             if (!file.exists())
                 return -1;

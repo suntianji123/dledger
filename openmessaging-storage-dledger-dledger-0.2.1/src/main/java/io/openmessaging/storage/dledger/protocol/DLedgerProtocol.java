@@ -24,6 +24,12 @@ import java.util.concurrent.CompletableFuture;
  */
 public interface DLedgerProtocol extends DLedgerClientProtocol {
 
+    /**
+     * 向
+     * @param request
+     * @return
+     * @throws Exception
+     */
     CompletableFuture<VoteResponse> vote(VoteRequest request) throws Exception;
 
     CompletableFuture<HeartBeatResponse> heartBeat(HeartBeatRequest request) throws Exception;
